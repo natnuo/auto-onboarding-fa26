@@ -94,6 +94,10 @@ impl Grid {
         }
     }
 
+    pub fn get_weight(&mut self, col: usize, row: usize) -> u8 {
+        self.weights[row * self.width + col]
+    }
+
     /// Whether a circle around `point` misses every occupied cell and stays on the map.
     pub fn clear(&self, point: Point2, radius_m: f64) -> bool {
         if !point.is_finite() || !radius_m.is_finite() || radius_m < 0.0 {
