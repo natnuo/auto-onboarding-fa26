@@ -28,14 +28,6 @@ impl PartialOrd for InflationState {
 
 impl Eq for InflationState {}
 
-fn logistic(x: f64) -> f64 {
-    1.0 / (1.0 + E.powf(-x))
-}
-
-fn log_odd(p: f64) -> f64 {
-    (p / (1.0 - p)).ln()
-}
-
 pub struct Perception {
     pub map: Grid,
 }
@@ -46,7 +38,7 @@ impl Perception {
         Self { map }
     }
 
-    fn adjacent_coordinates(&mut self, c: usize, r: usize) -> Vec<(usize, usize)> {
+    fn adjacent_coordinates(&self, c: usize, r: usize) -> Vec<(usize, usize)> {
         let mut v = vec![];
         if c > 0 { v.push((c-1, r)); }
         if r > 0 { v.push((c, r-1)); }
@@ -90,12 +82,11 @@ impl Perception {
                         (E.powf(inflation_radius - d) * 255.0) as u8
                     };
 
+                    // println!("{c} {r} {c0} {r0} {weight}");
+
                     if weight == 0 { continue; }
 
-                    // let last_weight = self.map.get_weight(c, r);
-
-                    // // todo: redo line below lol
-                    // self.map.set_weight(c, r, (logistic(log_odd(weight as f64 / 255.0) + 0.5 * (log_odd(last_weight as f64 / 255.0) - log_odd(weight as f64 / 255.0))) * 255.0).round() as u8);
+                    self.map.set_weight(c, r, weight);
 
                     for (c_, r_) in self.adjacent_coordinates(c, r) {
                         pq.push(InflationState { c: c_, r: r_, c0, r0, d: ((c_.abs_diff(c0).pow(2) + r_.abs_diff(r0).pow(2)) as f64).sqrt() });

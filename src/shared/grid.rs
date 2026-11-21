@@ -62,6 +62,14 @@ impl Grid {
         }
     }
 
+    /// x and y of a map point, where the x and y correspond to the center of the cell.
+    pub fn inv_cell(&self, c: usize, r: usize) -> Point2 {
+        Point2 {
+            x: ((c as f64 + 0.5) * self.resolution_m + self.origin.x),
+            y: ((r as f64 + 0.5) * self.resolution_m + self.origin.y)
+        }
+    }
+
     /// World position of the middle of that cell. `None` if the column or row is off the map.
     pub fn center(&self, col: usize, row: usize) -> Option<Point2> {
         (col < self.width && row < self.height).then_some(Point2 {
