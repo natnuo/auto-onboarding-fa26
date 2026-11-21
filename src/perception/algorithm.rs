@@ -1,5 +1,5 @@
 use crate::shared::{grid::Grid, types::{Observation}};
-use std::{cmp::Ordering, collections::{BinaryHeap, HashSet}, f64::consts::E};
+use std::{cmp::Ordering, collections::{BinaryHeap, HashSet}};
 
 #[derive(Copy, Clone, PartialEq)]
 struct InflationState {
@@ -77,9 +77,11 @@ impl Perception {
                     let weight = if d <= 0.00001 {
                         255
                     } else if d <= inflation_radius {
-                        254
+                        // 254
+                        0
                     } else {
-                        (E.powf(inflation_radius - d) * 255.0) as u8
+                        0
+                        // (E.powf(inflation_radius - d) * 255.0) as u8
                     };
 
                     // println!("{c} {r} {c0} {r0} {weight}");

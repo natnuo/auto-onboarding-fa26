@@ -1,5 +1,13 @@
 //! Subscribe to maps and publish paths. `run` is yours. `planned_update` is already written.
+use std::time::Duration;
+
+use zenoh::Wait;
+use zenoh::handlers::RingChannel;
+
+use prost::Message;
+use crate::planning::Planner;
 use crate::runtime::node::Context;
+use crate::shared::transport;
 use crate::{
     shared::protocol::{self, pb},
     Result,
@@ -8,13 +16,47 @@ use crate::{
 /// Still waiting for the map subscription and the path publisher.
 /// Copy the shape of `perception::node::run`.
 pub fn run(mut ctx: Context) -> Result<()> {
-    // Edit me...
-    // Read MapUpdate, call planned_update, publish on "path".
-    // Copy the map's source time onto the path. Don't stamp it with "now".
-    ctx.wait_for_wiring(
-        "planning still needs its Zenoh subscriber and publisher; see docs/project.md, Connecting the pieces",
-    )
-    // ...till here.
+    let maps = ctx
+        .transport
+        .session
+        .declare_subscriber(ctx.transport.key("map"))
+        .with(RingChannel::new(1))
+        .wait()?;
+
+    let path = ctx
+        .transport
+        .session
+        .declare_publisher(ctx.transport.key("path"))
+        .encoding(zenoh::bytes::Encoding::APPLICATION_PROTOBUF)
+        .congestion_control(zenoh::qos::CongestionControl::Drop)
+        .wait()?;
+    
+    ctx.status(
+        true,
+        "planner subscribed",
+        0,
+    )?;
+
+    // let mut map_fresh = Freshness::default();
+    let mut planner = Planner::default();
+
+    while ctx.poll()? {
+        while let Some(map) = transport::receive::<pb::MapUpdate>(&maps, Duration::ZERO)? {
+            // map_fresh.accept(&map.header);
+            let path_update = planned_update(&ctx, &map, &mut planner)?;
+            path.put(path_update.encode_to_vec()).wait()?;
+            ctx.status(
+                true,
+                "yay",
+                match map.header {
+                    Some(h) => h.time_ns,
+                    None => 0
+                }
+            )?;
+        }
+    }
+
+    Result::Ok(())
 }
 
 /// Turn a map into a path message.
