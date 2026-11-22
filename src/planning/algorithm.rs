@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::{BinaryHeap, HashMap}};
+use std::{cmp::Ordering, collections::{BinaryHeap, HashMap, HashSet, VecDeque}};
 
 use crate::{
     shared::{grid::Grid, types::{Path, Point2, VehicleState}},
@@ -8,19 +8,12 @@ use crate::{
 struct Step {
     c: usize,
     r: usize,
-    g_score: usize,  // g score (from start)
-    h_score: usize,  // h score (from end)
-}
-
-impl Step {
-    fn fc(&self) -> usize {
-        self.g_score + self.h_score
-    }
+    d: usize,
 }
 
 impl Ord for Step {
     fn cmp(&self, other: &Self) -> Ordering {
-        other.fc().cmp(&self.fc())
+        other.d.cmp(&self.d)
     }
 }
 
@@ -43,22 +36,28 @@ fn octile_dist(c1: usize, r1: usize, c2: usize, r2: usize) -> usize {
 
 fn adj(map: &Grid, c: usize, r: usize) -> Vec<(usize, usize)> {
     let mut v = vec![];
-    // let mut cv = vec![c];
-    // let mut rv = vec![r];
-    // if 0 < c { cv.push(c-1); }
-    // if c < map.width - 1 { cv.push(c+1); }
-    // if 0 < r { rv.push(r-1); }
-    // if r < map.height - 1 { rv.push(r+1); }
-    // for c_ in &cv {
-    //     for r_ in &rv {
-    //         v.push((c_.clone(), r_.clone()));
-    //     }
-    // }
-    if 0 < c { v.push((c-1, r)); }
-    if c < map.width - 1 { v.push((c+1, r)); }
-    if 0 < r { v.push((c, r-1)); }
-    if r < map.height - 1 { v.push((c, r+1)) }
+    let mut cv = vec![c];
+    let mut rv = vec![r];
+    if 0 < c { cv.push(c-1); }
+    if c < map.width - 1 { cv.push(c+1); }
+    if 0 < r { rv.push(r-1); }
+    if r < map.height - 1 { rv.push(r+1); }
+    for c_ in &cv {
+        for r_ in &rv {
+            v.push((c_.clone(), r_.clone()));
+        }
+    }
+    // if 0 < c { v.push((c-1, r)); }
+    // if c < map.width - 1 { v.push((c+1, r)); }
+    // if 0 < r { v.push((c, r-1)); }
+    // if r < map.height - 1 { v.push((c, r+1)) }
     v
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
+struct Vertex {
+    c: usize,
+    r: usize
 }
 
 impl Planner {
@@ -67,22 +66,139 @@ impl Planner {
         octile_dist(c1, r1, c2, r2)
     }
 
-    fn h(&self, c1: usize, r1: usize, c2: usize, r2: usize) -> usize {
-        octile_dist(c1, r1, c2, r2)
+    fn d_vertex(&self, v1: Vertex, v2: Vertex) -> usize {
+        self.d(v1.c, v1.r, v2.c, v2.r)
     }
 
-    fn construct_path(&self, _map: &Grid, parent: HashMap<(usize, usize), (usize, usize)>, end: (usize, usize)) -> Path {
+    fn construct_path(&self, _map: &Grid, parent: &HashMap<Vertex, Vertex>, end: Vertex) -> Path {
         let mut path: Path = vec![];
 
         let mut curr = Some(end);
+        let mut i = 0;
         while curr.is_some() {
-            let (c, r) = curr.expect("curr should not be none");
-            path.push(_map.inv_cell(c, r));
-            curr = parent.get(&(c, r)).copied();
+            let v = curr.expect("curr should not be None");
+            println!("{} {}", v.c, v.r);
+            path.push(_map.inv_cell(v.c, v.r));
+            curr = parent.get(&v).copied();
         }
 
         path.reverse();
         path
+    }
+
+    fn sample_free(
+        &self,
+        _map: &Grid,
+        _clearance_m: f64
+    ) -> Vertex {
+        // could be improved for saturated map case
+        let mut v;
+        loop {
+            v = Vertex {
+                c: rand::random_range(0.._map.width),
+                r: rand::random_range(0.._map.height)
+            };
+            let p = _map.center(v.c, v.r).expect("should be a valid point");
+            if _map.clear(p, _clearance_m) {
+                break;
+            }
+        }
+        v
+    }
+
+    fn nearest(
+        &self,
+        _map: &Grid,
+        vertex: &Vertex,
+        costs: &HashMap<Vertex, usize>
+    ) -> Option<Vertex> {
+        let mut pq: BinaryHeap<Step> = BinaryHeap::new();
+        let mut vis: HashSet<Vertex> = HashSet::new();
+
+        pq.push(Step { c: vertex.c, r: vertex.r, d: 0 });
+
+        while !pq.is_empty() {
+            let Step { c, r, d: _ } = pq.pop().expect("pq must have top element");
+
+            let vert = Vertex { c, r };
+
+            if vis.contains(&vert) { continue; }
+            if costs.contains_key(&vert) { return Some(vert); }
+            vis.insert(vert);
+
+            for (c_, r_) in adj(_map, c, r) {
+                pq.push(Step { c: c_, r: r_, d: self.d(c, r, c_, r) });
+            }
+        }
+
+        None
+    }
+
+    fn steer(
+        &self,
+        _map: &Grid,
+        v1: Vertex,
+        v2: Vertex,
+        radius: f64,
+    ) -> Option<Vertex> {
+        let Some(p1) = _map.center(v1.c, v1.r) else { return None; };
+        let Some(p2) = _map.center(v2.c, v2.r) else { return None; };
+        
+        let d = p1.distance(p2);  // around p1
+        
+        if d <= radius {
+            return Some(v2);
+        }
+
+        // r < d now
+
+        let pct = radius / d;
+
+        let pres = Point2 {
+            x: p1.x * (1.0 - pct) + p2.x * pct,
+            y: p1.y * (1.0 - pct) + p2.y * pct
+        };
+
+        let Some((c, r)) = _map.cell(pres) else { return None; };
+
+        Some(Vertex { c, r })
+    }
+
+    fn near(
+        &self,
+        _map: &Grid,
+        origin: Vertex,
+        costs: &HashMap<Vertex, usize>,
+        radius: f64
+    ) -> Option<Vec<Vertex>> {
+        let mut res = vec![];
+
+        let mut q: VecDeque<Vertex> = VecDeque::new();
+        let mut vis: HashSet<Vertex> = HashSet::new();
+
+        let Some(p_origin) = _map.center(origin.c, origin.r) else { return None; };
+
+        q.push_back(origin);
+        while !q.is_empty() {
+            let x = q.pop_front().expect("q really should have front element.");
+
+            if vis.contains(&x) { continue; }
+
+            let p_x = _map.center(x.c, x.r).expect("we should've selected only indices that are in range");
+            if p_origin.distance(p_x) > radius { continue; }
+
+            vis.insert(x);
+            
+            if costs.contains_key(&x) {
+                res.push(x);
+            }
+            
+            for (c_, r_) in adj(_map, x.c, x.r) {
+                q.push_back(Vertex { c: c_, r: r_ });
+            }
+        }
+
+        return Some(res);
     }
 
     /// A route from the car to `goal`, or `None` if there is no way through.
@@ -100,51 +216,93 @@ impl Planner {
         _clearance_m: f64,
         _goal_tolerance_m: f64,
     ) -> Option<Path> {
-        let mut pq: BinaryHeap<Step> = BinaryHeap::new();
-        let mut g_scores: HashMap<(usize, usize), usize> = HashMap::new();
-        let mut parent: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
-
-        let Some((cg, rg)) = _map.cell(_goal) else { return None; };
-        let Some((c, r)) = _map.cell(_state.pose.position) else { return None; };
-
-        g_scores.insert((c, r), 0);
-        pq.push(Step {
-            c, r,
-            g_score: 0,
-            h_score: self.h(c, r, cg, rg)
-        });
-
-        while !pq.is_empty() {
-            let Step { c, r, g_score, h_score: _ } = pq.pop().expect("pq top element should exist");
-            
-            println!("{c}, {r}");
-
-            if g_score != *g_scores.get(&(c, r)).unwrap_or(&usize::MAX) { continue; }
-            
-            let cur_point = _map.inv_cell(c, r);
-            let dist = _goal.distance(cur_point);
-
-            if dist <= _goal_tolerance_m {
-                return Some(self.construct_path(_map, parent, (c, r)));
+        let mut costs: HashMap<Vertex, usize> = HashMap::new();
+        let mut parent: HashMap<Vertex, Vertex> = HashMap::new();
+        
+        let start;
+        match _map.cell(_state.pose.position) {
+            Some(cell) => { start = Vertex { c: cell.0, r: cell.1 }; }
+            None => {
+                println!("4");
+                return None;
             }
+        };
 
-            for (c_, r_) in adj(_map, c, r) {
-                if !_map.clear(_map.inv_cell(c_, r_), _clearance_m) { continue; }
+        costs.insert(start, 0);
 
-                let att_g_score = g_score + self.d(c, r, c_, r_);
-                if att_g_score < *g_scores.get(&(c_, r_)).unwrap_or(&usize::MAX) {
-                    g_scores.insert((c_, r_), att_g_score);
-                    parent.insert((c_, r_), (c, r));
-                    pq.push(Step {
-                        c: c_,
-                        r: r_,
-                        g_score: att_g_score,
-                        h_score: self.h(c_, r_, cg, rg)
-                    });
+        let rrt_iters = 5000;
+        for i in 0..rrt_iters {
+            // let radius = 0.5 * 
+            let radius = (_map.width * _map.height) as f64 / 500.0 * _map.resolution_m;  // temp
+
+            let x_rand = self.sample_free(_map, _clearance_m);
+            let Some(x_nearest) = self.nearest(_map, &x_rand, &costs) else {
+                println!("5");
+                return None;
+            };
+            let x_new = self.steer(_map, x_nearest, x_rand, radius).expect("x_new really shouldn't be None");
+
+            let px_new = _map.center(x_new.c, x_new.r).expect("x_new should be in range");
+            let px_nearest = _map.center(x_nearest.c, x_nearest.r).expect("x_nearest should be in range");
+
+            if !costs.contains_key(&x_rand) && _map.segment_clear(px_nearest, px_new, _clearance_m) {
+                let mut nearby = self.near(_map, x_new, &costs, radius).expect("x_new should've been in range");
+
+                nearby.push(x_nearest);
+
+                let mut mn_x = None;
+                let mut mn_c = usize::MAX;
+
+                for x_near in &nearby {
+                    let att_c = self.d_vertex(*x_near, x_new) + costs.get(x_near).expect("x_near really should be in range");
+                    let px_near = _map.center(x_near.c, x_near.r).expect("x_near should really be in range");
+                    if _map.segment_clear(px_near, px_new, _clearance_m) && att_c < mn_c {
+                        mn_c = att_c;
+                        mn_x = Some(x_near);
+                    }
+                }
+
+                let mn_x = mn_x.expect("mn_x really should have been set the first time around");
+
+                parent.insert(x_new, *mn_x);
+                costs.insert(x_new, mn_c);
+                
+                for x_near in &nearby {
+                    let att_c = self.d_vertex(x_new, *x_near) + costs.get(&x_new).expect("x_new should really have a cost");
+                    let px_near = _map.center(x_near.c, x_near.r).expect("x_near should really be in range");
+
+                    if x_near != mn_x && _map.segment_clear(px_new, px_near, _clearance_m) && att_c < *costs.get(x_near).expect("x_near should really have a cost") {
+                        parent.insert(*x_near, x_new);
+                    }
                 }
             }
         }
+        
+        let mut mn_x: Option<Vertex> = None;
+        let mut mn_d = f64::MAX;
 
-        None
+        let Some((gc, gr)) = _map.cell(_goal) else {
+            println!("6");
+            return None;
+        };
+        println!("HI1");
+        for g_near in self.near(_map, Vertex { c: gc, r: gr }, &costs, _goal_tolerance_m).expect("goal not in range should've already been eliminated") {
+            let pg_near = _map.center(g_near.c, g_near.r).expect("g_near really should be in range");
+            let d = pg_near.distance(_goal);
+            if d < mn_d {
+                mn_d = d;
+                mn_x = Some(g_near);
+            }
+        }
+        println!("HI2");
+
+        let Some(mn_x) = mn_x else {
+            println!("7");
+            return None;
+        };
+
+        println!("HI3");
+        println!("({gc}, {gr})");
+        Some(self.construct_path(_map, &parent, mn_x))
     }
 }

@@ -17,6 +17,7 @@ sha2 = "0.10"
 # Newer uuid releases require Rust 1.89; keep the starter compatible with 1.88.
 uuid = { version = "=1.26.1", features = ["v4"] }
 zenoh = { version = "=1.10.2", default-features = false, features = ["transport_tcp"] }
+rand = "0.10.4"
 
 [dev-dependencies]
 prost-build = "=0.14.4"
