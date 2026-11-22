@@ -74,10 +74,10 @@ impl Planner {
         let mut path: Path = vec![];
 
         let mut curr = Some(end);
-        let mut i = 0;
+        // let mut i = 0;
         while curr.is_some() {
             let v = curr.expect("curr should not be None");
-            println!("{} {}", v.c, v.r);
+            // println!("{} {}", v.c, v.r);
             path.push(_map.inv_cell(v.c, v.r));
             curr = parent.get(&v).copied();
         }
@@ -106,7 +106,7 @@ impl Planner {
         v
     }
 
-    fn nearest(
+    fn nearest_dijkstras(
         &self,
         _map: &Grid,
         vertex: &Vertex,
@@ -127,11 +127,45 @@ impl Planner {
             vis.insert(vert);
 
             for (c_, r_) in adj(_map, c, r) {
-                pq.push(Step { c: c_, r: r_, d: self.d(c, r, c_, r) });
+                pq.push(Step { c: c_, r: r_, d: self.d(c, r, c_, r_) });
             }
         }
 
         None
+    }
+
+    fn nearest_vertex_search(
+        &self,
+        vertex: &Vertex,
+        costs: &HashMap<Vertex, usize>
+    ) -> Option<Vertex> {
+        let mut mn_dist = usize::MAX;
+        let mut mn_vert = None;
+
+        for vert in costs.keys() {
+            let d = self.d_vertex(*vertex, *vert);
+
+            if d < mn_dist {
+                mn_dist = d;
+                mn_vert = Some(vert);
+            }
+        }
+
+        mn_vert.copied()
+    }
+
+    fn nearest(
+        &self,
+        _map: &Grid,
+        vertex: &Vertex,
+        costs: &HashMap<Vertex, usize>
+    ) -> Option<Vertex> {
+        let cells_per_element = _map.width * _map.height / costs.len();
+        if cells_per_element < costs.len() {
+            self.nearest_dijkstras(_map, vertex, costs)
+        } else {
+            self.nearest_vertex_search(vertex, costs)
+        }
     }
 
     fn steer(
@@ -218,6 +252,12 @@ impl Planner {
     ) -> Option<Path> {
         let mut costs: HashMap<Vertex, usize> = HashMap::new();
         let mut parent: HashMap<Vertex, Vertex> = HashMap::new();
+
+        let Some((gc, gr)) = _map.cell(_goal) else {
+            // println!("6");
+            return None;
+        };
+        let g_vert = Vertex { c: gc, r: gr };
         
         let start;
         match _map.cell(_state.pose.position) {
@@ -230,23 +270,37 @@ impl Planner {
 
         costs.insert(start, 0);
 
-        let rrt_iters = 5000;
-        for i in 0..rrt_iters {
-            // let radius = 0.5 * 
-            let radius = (_map.width * _map.height) as f64 / 500.0 * _map.resolution_m;  // temp
+        let dim = 2.0;
+        let area = (_map.width as f64 * _map.resolution_m) * (_map.height as f64 * _map.resolution_m);
+        
+        let gamma = 4.1 * ((1.0 + 1.0 / dim) as f64).powf(1.0 / dim) * (area / std::f64::consts::PI).powf(1.0 / dim);
 
-            let x_rand = self.sample_free(_map, _clearance_m);
+        let rrt_iters = 600;
+        for _ in 0..rrt_iters {
+            let n = costs.len().max(2) as f64;
+
+            let steer_radius = 50.0 * _map.resolution_m;
+            let near_radius = (gamma * (n.ln() / n).powf(1.0 / dim)).min(steer_radius);
+
+            // println!("{steer_radius}, {near_radius}");
+
+            let x_rand;
+            if rand::random_ratio(1, 7) {
+                x_rand = g_vert;
+            } else {
+                x_rand = self.sample_free(_map, _clearance_m);
+            }
             let Some(x_nearest) = self.nearest(_map, &x_rand, &costs) else {
-                println!("5");
+                // println!("5");
                 return None;
             };
-            let x_new = self.steer(_map, x_nearest, x_rand, radius).expect("x_new really shouldn't be None");
+            let x_new = self.steer(_map, x_nearest, x_rand, steer_radius).expect("x_new really shouldn't be None");
 
             let px_new = _map.center(x_new.c, x_new.r).expect("x_new should be in range");
             let px_nearest = _map.center(x_nearest.c, x_nearest.r).expect("x_nearest should be in range");
 
-            if !costs.contains_key(&x_rand) && _map.segment_clear(px_nearest, px_new, _clearance_m) {
-                let mut nearby = self.near(_map, x_new, &costs, radius).expect("x_new should've been in range");
+            if !costs.contains_key(&x_new) && _map.segment_clear(px_nearest, px_new, _clearance_m) {
+                let mut nearby = self.near(_map, x_new, &costs, near_radius).expect("x_new should've been in range");
 
                 nearby.push(x_nearest);
 
@@ -265,6 +319,10 @@ impl Planner {
                 let mn_x = mn_x.expect("mn_x really should have been set the first time around");
 
                 parent.insert(x_new, *mn_x);
+                // if x_new == *mn_x {
+                //     println!("{} {}", costs.contains_key(&x_new), costs.contains_key(mn_x));
+                // }
+
                 costs.insert(x_new, mn_c);
                 
                 for x_near in &nearby {
@@ -273,6 +331,7 @@ impl Planner {
 
                     if x_near != mn_x && _map.segment_clear(px_new, px_near, _clearance_m) && att_c < *costs.get(x_near).expect("x_near should really have a cost") {
                         parent.insert(*x_near, x_new);
+                        costs.insert(*x_near, att_c);
                     }
                 }
             }
@@ -281,12 +340,8 @@ impl Planner {
         let mut mn_x: Option<Vertex> = None;
         let mut mn_d = f64::MAX;
 
-        let Some((gc, gr)) = _map.cell(_goal) else {
-            println!("6");
-            return None;
-        };
-        println!("HI1");
-        for g_near in self.near(_map, Vertex { c: gc, r: gr }, &costs, _goal_tolerance_m).expect("goal not in range should've already been eliminated") {
+        // println!("HI1");
+        for g_near in self.near(_map, g_vert, &costs, _goal_tolerance_m).expect("goal not in range should've already been eliminated") {
             let pg_near = _map.center(g_near.c, g_near.r).expect("g_near really should be in range");
             let d = pg_near.distance(_goal);
             if d < mn_d {
@@ -294,15 +349,15 @@ impl Planner {
                 mn_x = Some(g_near);
             }
         }
-        println!("HI2");
+        // println!("HI2");
 
         let Some(mn_x) = mn_x else {
-            println!("7");
+            // println!("7");
             return None;
         };
 
-        println!("HI3");
-        println!("({gc}, {gr})");
+        // println!("HI3");
+        // println!("({gc}, {gr})");
         Some(self.construct_path(_map, &parent, mn_x))
     }
 }
