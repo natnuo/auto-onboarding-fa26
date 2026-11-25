@@ -273,13 +273,13 @@ impl Planner {
         let dim = 2.0;
         let area = (_map.width as f64 * _map.resolution_m) * (_map.height as f64 * _map.resolution_m);
         
-        let gamma = 4.1 * ((1.0 + 1.0 / dim) as f64).powf(1.0 / dim) * (area / std::f64::consts::PI).powf(1.0 / dim);
+        let gamma = 2.1 * ((1.0 + 1.0 / dim) as f64).powf(1.0 / dim) * (area / std::f64::consts::PI).powf(1.0 / dim);
 
-        let rrt_iters = 600;
+        let rrt_iters = 30;
         for _ in 0..rrt_iters {
             let n = costs.len().max(2) as f64;
 
-            let steer_radius = 50.0 * _map.resolution_m;
+            let steer_radius = 30.0 * _map.resolution_m;
             let near_radius = (gamma * (n.ln() / n).powf(1.0 / dim)).min(steer_radius);
 
             // println!("{steer_radius}, {near_radius}");
@@ -337,27 +337,41 @@ impl Planner {
             }
         }
         
-        let mut mn_x: Option<Vertex> = None;
+        let mut mn_x: Option<Vertex> = self.nearest(_map, &g_vert, &costs);
         let mut mn_d = f64::MAX;
 
         // println!("HI1");
-        for g_near in self.near(_map, g_vert, &costs, _goal_tolerance_m).expect("goal not in range should've already been eliminated") {
-            let pg_near = _map.center(g_near.c, g_near.r).expect("g_near really should be in range");
-            let d = pg_near.distance(_goal);
-            if d < mn_d {
-                mn_d = d;
-                mn_x = Some(g_near);
-            }
-        }
+        // for g_near in self.near(_map, g_vert, &costs, _goal_tolerance_m).expect("goal not in range should've already been eliminated") {
+        //     let pg_near = _map.center(g_near.c, g_near.r).expect("g_near really should be in range");
+        //     let d = pg_near.distance(_goal);
+        //     if d < mn_d {
+        //         mn_d = d;
+        //         mn_x = Some(g_near);
+        //     }
+        // }
         // println!("HI2");
 
-        let Some(mn_x) = mn_x else {
-            // println!("7");
-            return None;
-        };
+        if let Some(mn_x) = mn_x {
+            let p_mn_x = _map.center(mn_x.c, mn_x.r).expect("mn_x should be in range");
+            
+            if p_mn_x.distance(_goal) <= _goal_tolerance_m {
+                Some(self.construct_path(_map, &parent, mn_x))
+            } else {
+                None
+                // parent.insert(g_vert, mn_x);
+                // Some(self.construct_path(_map, &parent, g_vert))
+            }
+        } else {
+            None
+        }
+
+        // let Some(mn_x) = mn_x else {
+        //     // println!("7");
+        //     return None;
+        // };
 
         // println!("HI3");
         // println!("({gc}, {gr})");
-        Some(self.construct_path(_map, &parent, mn_x))
+        // Some(self.construct_path(_map, &parent, mn_x))
     }
 }
