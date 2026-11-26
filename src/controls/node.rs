@@ -132,7 +132,7 @@ pub fn controlled_update(
         return Ok(out);
     };
     if path.availability != pb::Availability::Ready as i32 {
-        println!("bruh 2");
+        println!("{}", path.availability);
         return Ok(out);
     }
     let path_h = protocol::check_header(&path.header, &ctx.transport.run, "map")?;

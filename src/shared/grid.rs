@@ -66,7 +66,7 @@ impl Grid {
     pub fn inv_cell(&self, c: usize, r: usize) -> Point2 {
         Point2 {
             x: ((c as f64 + 0.5) * self.resolution_m + self.origin.x),
-            y: ((r as f64 + 0.5) * self.resolution_m + self.origin.y)
+            y: ((r as f64 + 0.5) * self.resolution_m + self.origin.y),
         }
     }
 

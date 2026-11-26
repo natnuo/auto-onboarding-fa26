@@ -16,14 +16,20 @@ impl Controller {
     /// Attempts to find an intersection between the circle of radius `r` centered at `c` and the line between `u` and `v`.
     /// Returns `None` if no intersections are found.
     /// Returns the intersection point closest to `v` otherwise.
-    pub fn circ_line_intersect(&self, u: &Point2, v: &Point2, c: &Point2, r: f64) -> Option<Point2> {
+    pub fn circ_line_intersect(
+        &self,
+        u: &Point2,
+        v: &Point2,
+        c: &Point2,
+        r: f64,
+    ) -> Option<Point2> {
         let u_ = Point2 {
             x: u.x - c.x,
-            y: u.y - c.y
+            y: u.y - c.y,
         };
         let v_ = Point2 {
             x: v.x - c.x,
-            y: v.y - c.y
+            y: v.y - c.y,
         };
 
         let dy = v_.y - u_.y;
@@ -39,11 +45,11 @@ impl Controller {
 
         let sol1 = Point2 {
             x: (D * dy + dy.signum() * dx * discriminant.sqrt()) / (dist * dist) + c.x,
-            y: (-D * dx + dy.abs() * discriminant.sqrt()) / (dist * dist) + c.y
+            y: (-D * dx + dy.abs() * discriminant.sqrt()) / (dist * dist) + c.y,
         };
         let sol2 = Point2 {
             x: (D * dy - dy.signum() * dx * discriminant.sqrt()) / (dist * dist) + c.x,
-            y: (-D * dx - dy.abs() * discriminant.sqrt()) / (dist * dist) + c.y
+            y: (-D * dx - dy.abs() * discriminant.sqrt()) / (dist * dist) + c.y,
         };
 
         let min_x = u.x.min(v.x);
@@ -68,7 +74,9 @@ impl Controller {
             Some(sol1.expect("sol1 should exist"))
         } else if sol2.is_some() && sol1.is_none() {
             Some(sol2.expect("sol2 should exist"))
-        } else if sol1.expect("sol1 should exist").distance(v_) < sol2.expect("sol2 should exist").distance(v_) {
+        } else if sol1.expect("sol1 should exist").distance(v_)
+            < sol2.expect("sol2 should exist").distance(v_)
+        {
             Some(sol1.expect("sol1 should exist"))
         } else {
             Some(sol2.expect("sol2 should exist"))
@@ -80,11 +88,10 @@ impl Controller {
     /// The node publishes them unchanged. `dt_s` is the time since the last call, in seconds.
     /// This starter always stops. See Controls in `docs/project.md`.
     pub fn command(&mut self, _state: &VehicleState, _path: &[Point2], _dt_s: f64) -> DriveCommand {
-        // println!("HI");
-        
         let L = 1.0;
 
         if self.index >= _path.len() {
+            println!("STOPPING {} {}", self.index, _path.len());
             return DriveCommand::STOP;
         }
 
@@ -94,7 +101,8 @@ impl Controller {
             let mut i = self.index;
             let mut target = None;
             while i < _path.len() - 1 && target.is_none() {
-                target = self.circ_line_intersect(&_path[i], &_path[i+1], &_state.pose.position, L);
+                target =
+                    self.circ_line_intersect(&_path[i], &_path[i + 1], &_state.pose.position, L);
                 i = i + 1;
             }
 
@@ -109,17 +117,25 @@ impl Controller {
         };
 
         // println!("{} {}", goal_pt.x, goal_pt.y);
-        
-        let global_ang = (goal_pt.y - _state.pose.position.y).atan2(goal_pt.x - _state.pose.position.x);
-        let local_ang = (global_ang - (_state.pose.yaw_rad + PI) % (2.0 * PI) - PI + 7.0 * PI) % (2.0 * PI) - PI;
+
+        let global_ang =
+            (goal_pt.y - _state.pose.position.y).atan2(goal_pt.x - _state.pose.position.x);
+        let local_ang = (global_ang - (_state.pose.yaw_rad + PI) % (2.0 * PI) - PI + 7.0 * PI)
+            % (2.0 * PI)
+            - PI;
 
         // println!("{global_ang} {} {} {local_ang}", global_ang - _state.pose.yaw_rad, (global_ang - (_state.pose.yaw_rad + PI) % (2.0 * PI)) % (2.0 * PI));
         // println!("{}", local_ang);
 
         DriveCommand {
             speed_mps: self.vehicle.max_speed_mps,
-            // speed_mps: 1.0,
-            steering_rad: local_ang.clamp(-self.vehicle.max_steering_rad, self.vehicle.max_steering_rad),
+            steering_rad: 0.0,
         }
+
+        // DriveCommand {
+        //     speed_mps: self.vehicle.max_speed_mps,
+        //     // speed_mps: 1.0,
+        //     steering_rad: local_ang.clamp(-self.vehicle.max_steering_rad, self.vehicle.max_steering_rad),
+        // }
     }
 }
